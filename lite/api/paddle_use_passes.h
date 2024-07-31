@@ -103,6 +103,7 @@ USE_MIR_PASS(__xpu__multi_encoder_adaptive_seqlen_fuse_pass);
 USE_MIR_PASS(__xpu__multi_encoder_adaptive_seqlen_v2_fuse_pass);
 USE_MIR_PASS(__xpu__multi_encoder_adaptive_seqlen_v3_fuse_pass);
 USE_MIR_PASS(__xpu__roformer_relative_pos_fuse_pass);
+USE_MIR_PASS(__xpu__slice_split_fuse_pass);
 USE_MIR_PASS(__xpu__multi_encoder_slice_link_fuse_pass);
 USE_MIR_PASS(__xpu__generate_sequence_fuse_pass);
 USE_MIR_PASS(__xpu__logit_fuse_pass);
