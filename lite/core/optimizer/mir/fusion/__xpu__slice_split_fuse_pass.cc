@@ -71,21 +71,23 @@ class XPUSliceSplitFuser : public FuseBase {
     // 然后把in_links最高的相同的筛选出
     for (int i = 0; i < all_slice.size(); ++i) {
       int max_num = 1;
-      for (int j = 0; j !=i && j < all_slice.size(); ++j) {
-        if (IsSamePredecessorOf(all_slice[i], all_slice[j])) {
-          max_num++; 
+      for (int j = 0; j < all_slice.size(); ++j) {
+        if (i == j) {
+          continue;
+        } else {
+          if (IsSamePredecessorOf(all_slice[i], all_slice[j])) {
+            max_num++; 
+          }
         }
-        if (max_num > global_max) {
-
-          global_max = max_num;
-        }
-        pred_num[i] = max_num;
       }
-
-      for (int i = 0; i < all_slice.size(); ++i) {
-        if (pred_num[i] == global_max) {
-          all_slice_split.push_back(all_slice[i]);
-        }
+      if (max_num > global_max) {
+        global_max = max_num;
+      }
+      pred_num[i] = max_num;
+    }
+    for (int i = 0; i < all_slice.size(); ++i) {
+      if (pred_num[i] == global_max) {
+        all_slice_split.push_back(all_slice[i]);
       }
     }
     VLOG(3) << "Found slice num: " << all_slice_split.size();
