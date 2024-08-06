@@ -41,7 +41,69 @@ namespace fusion {
 /*          slice   slice  slice   ... slice             */
 /*----------------------------------------------------   */
 
-class XPUSliceSplitFuser : public FuseBase {
+/******构造单pass******/
+// class XPUSingleSliceSplitFuser : public FuseBase {
+//  public:
+//   void BuildPattern() override {
+//     auto* input = VarNode("input")
+//                       ->assert_is_op_output("__xpu__multi_encoder", "Output")
+//                       ->assert_is_op_input("slice", "Input")
+//                       ->AsInput();
+//     auto* slice =
+//         OpNode("slice", "slice")
+//             ->assert_op_attr_satisfied<std::vector<int>>(
+//                 "axes",
+//                 [](const std::vector<int>& attr) {
+//                   return attr.size() == 1 && attr[0] == 1;
+//                 })
+//             ->assert_op_attr_satisfied<std::vector<int>>(
+//                 "starts",
+//                 [](const std::vector<int>& attr) { return attr.size() == 1; })
+//             ->assert_op_attr_satisfied<std::vector<int>>(
+//                 "ends",
+//                 [](const std::vector<int>& attr) { return attr.size() == 1; })
+//             ->AsIntermediate();
+//     auto* slice_out = VarNode("slice_out")
+//                           ->assert_is_op_output("slice", "Out")
+//                           ->assert_is_op_input("softmax", "X")
+//                           ->assert_only_one_output()
+//                           ->AsIntermediate();
+//     // 这里可能需要重新确定一下
+//     auto* split = OpNode("split", "split")
+//                         ->assert_op_attr<int>("axis", 1)
+//                         ->assert_op_attr<int>("num", 1)
+//                         ->AsIntermediate();
+//     auto* split_output = VarNode("split_out_out")
+//                             ->assert_is_op_output("split", "Out")
+//                             ->AsOutput();
+//     *input >> *slice >> *slice_out >> *split >> *split_output;
+//   }
+
+//   void InsertNewNode(SSAGraph* graph, const key2nodes_t& matched) override {
+//     auto* slice_instruct = matched.at("slice")->stmt();
+//     auto slice_op_desc = *slice_instruct->op_info();
+//     auto slice_op = matched.at("slice")->stmt()->op();
+//     auto* scope = slice_op->scope();
+
+//     cpp::OpDesc op_desc;
+//     op_desc.SetType("__xpu__slice_split");
+//     auto input_name = matched.at("input")->arg()->name;
+//     op_desc.SetInput("Input", {input_name});
+//     op_desc.SetOutput("Output", {matched.at("split_out")->arg()->name});
+//     op_desc.SetAttr("axis", 1);
+//     op_desc.SetAttr("num", 1);
+//     auto multi_slice_split_op =
+//         LiteOpRegistry::Global().Create("__xpu__slice_split");
+//     auto& valid_places = slice_op->valid_places();
+//     multi_slice_split_op->Attach(op_desc, scope);
+//     auto* new_op_node =
+//         graph->GraphCreateInstructNode(multi_slice_split_op, valid_places);
+//     DirectedLink(matched.at("input"), new_op_node);
+//     DirectedLink(new_op_node, matched.at("slice_out"));
+//   }
+// };
+
+class XPUMultiSliceSplitFuser {
  public:
   // 这些slices的输入都是同一个,判断是否是同一个父亲节点
   bool IsSamePredecessorOf(Node* op1, Node* op2) {
@@ -53,10 +115,11 @@ class XPUSliceSplitFuser : public FuseBase {
     return true;
   }
 
-  // 将slice的节点选择出来
-  void SelectNode(SSAGraph* graph, std::vector<Node*> all_slice_split) {
+  // 找到相同的inlinks, 判断是否是同一个父亲节点 把最多父节点的上去
+  void operator() (SSAGraph* graph) {
     std::vector<Node*> all_slice;
-    std::vector<const Node*> to_remove;
+    std::vector<int> pred_num;
+    std::vector<Node*> all_slice_split;
     // 找到所有的slice算子节点
     for (auto* node : graph->StmtTopologicalOrder()) {
       CHECK(node->IsStmt());
@@ -67,23 +130,24 @@ class XPUSliceSplitFuser : public FuseBase {
         // 然后去找到inlinks相同且最多的node 将其筛选出来
       }
     }
+
     int global_max = 1;
     // 然后把in_links最高的相同的筛选出
     for (int i = 0; i < all_slice.size(); ++i) {
-      int max_num = 1;
+      int same_num = 1;
       for (int j = 0; j < all_slice.size(); ++j) {
         if (i == j) {
           continue;
         } else {
           if (IsSamePredecessorOf(all_slice[i], all_slice[j])) {
-            max_num++; 
+            same_num++; 
           }
         }
       }
-      if (max_num > global_max) {
-        global_max = max_num;
+      if (same_num > global_max) {
+        global_max = same_num;
       }
-      pred_num[i] = max_num;
+      pred_num.push_back(same_num);
     }
     for (int i = 0; i < all_slice.size(); ++i) {
       if (pred_num[i] == global_max) {
@@ -92,41 +156,32 @@ class XPUSliceSplitFuser : public FuseBase {
     }
     VLOG(3) << "Found slice num: " << all_slice_split.size();
 
-    if (all_slice_split.size() == 0) {
-      return;
-    }
-  }
-
-  // 找到相同的inlinks, 判断是否是同一个父亲节点 把最多父节点的上去
-  void operator() (SSAGraph* graph) {
-    std::vector<Node*> all_slice_split;
     std::vector<Node*> slice_split_sort;
+    std::set<const Node*> to_remove;
     std::vector<int> vec_start;
     std::vector<int> vec_end;
-    // 挑选节点 但是还没有排序
-    SelectNode(graph, all_slice_split);
     // 按照starts排序
     for (int i = 0; i < all_slice_split.size(); i++) {
       for (int j = 0; j < all_slice_split.size(); j++) {
-        if (all_split_slice[i]->stmt()->op_info()->GetAttr<std::vector<int>>("starts")[0] == i) {
-          slice_split_sort.push_back(all_split_slice[i]);
+        if (all_slice_split[i]->stmt()->op_info()->GetAttr<std::vector<int>>("starts")[0] == i) {
+          slice_split_sort.push_back(all_slice_split[i]);
           vec_start.push_back(i);
           vec_end.push_back(i+1);
         }
       }
     }
-
+    // 按照start和end完成排序了
     auto first_slice = slice_split_sort[0]->stmt()->op();
     auto* scope = first_slice->scope();
     auto& valid_places = first_slice->valid_places();
 
-    std::vector<bool> used(all_split_slice.size(), false);
+    std::vector<bool> used(slice_split_sort.size(), false);
     std::vector<std::string> out_names;
-    Node* input_node = all_split_slice[0]->inlinks.front();
+    Node* input_node = slice_split_sort[0]->inlinks.front();
     std::vector<Node*> output_node;
     // 记录名字
     std::string in_name = 
-        all_split_slice[0]->stmt()->op_info()->Input("X").front();
+        slice_split_sort[0]->stmt()->op_info()->Input("X").front();
     std::vector<int> end{0};
     bool all_used = false;
     int last_remain = used.size();
@@ -138,13 +193,14 @@ class XPUSliceSplitFuser : public FuseBase {
       for (int i = 0; i < used.size(); i++) {
         if (used[i] == false) {
           auto cur_lod_end =
-            all_split_slice[i]->stmt()->op_info()->GetAttr<std::vector<int>>("ends")[0];
+            slice_split_sort[i]->stmt()->op_info()->GetAttr<std::vector<int>>("ends")[0];
           auto cur_lod_start =
-            all_split_slice[i]->stmt()->op_info()->GetAttr<std::vector<int>>("starts")[0];
+            slice_split_sort[i]->stmt()->op_info()->GetAttr<std::vector<int>>("starts")[0];
           if (cur_lod_start == i && cur_lod_end == (i+1)) {
             out_names.push_back(
               slice_split_sort[i]->stmt()->op_info()->Output("Out").front());
             output_node.push_back(slice_split_sort[i]->outlinks.front());
+            to_remove.insert(slice_split_sort[i]);
             used[i] = true;
             cur_remain = cur_remain - 1;
           }
@@ -153,33 +209,50 @@ class XPUSliceSplitFuser : public FuseBase {
       }
     }
 
-    GraphSafeRemoveNodes(graph, to_remove);
+    GraphSafeRemoveNodes(graph, to_remove); // 将节点删除
+    //  这里构建slice节点的数据，将结果拼接，作为split的输入
     cpp::OpDesc op_desc;
-    op_desc.SetType("__xpu__slice_split");
+    op_desc.SetType("slice");
     op_desc.SetInput("X", {in_name});
-    op_desc.SetOutput("Out", {out_names});
-    // 需要将axis_tensor进行填充 给到split
+    // 这里应该输出的是一个节点
+    std::string out_name = "mul_encoder_slice_out";
+    op_desc.SetOutput("Out", {out_name});
     op_desc.SetAttr<std::vector<int>>("starts", vec_start);
     op_desc.SetAttr<std::vector<int>>("ends", vec_end);
-
     // 需要将数据进行拼接
     std::string concat_output_name =
-      "__xpu__slice_split_concat_output_" + in_name;
+      "__xpu__slice_concat_output_" + in_name;
+    
     CHECK(graph->RetrieveArgument(concat_output_name) == nullptr);
     auto* concat_output_node = graph->NewArgumentNode(concat_output_name);
     concat_output_node->arg()->type = LiteType::GetTensorTy(
         TARGET(kXPU), PRECISION(kFloat));
-    auto* new_op = LiteOpRegistry::Global().Create(op_desc.Type());
+    auto new_op = LiteOpRegistry::Global().Create(op_desc.Type());
     scope->NewTensor(concat_output_name);
-
     new_op->Attach(op_desc, scope);
-
     // 需要将进行拼接
     auto* new_op_node = graph->GraphCreateInstructNode(new_op, valid_places);
-    DirectedLink(new_op_node, concat_output_node);
+    // 上面是构建完成了slice op; 下面构建split op
+    cpp::OpDesc split_op_desc;
+    split_op_desc.SetType("split");
+    std::string slice_output_name =
+      "__xpu__slice_output_" + in_name;
+    split_op_desc.SetInput("X", {slice_output_name});
+    split_op_desc.SetOutput("Out", {out_names});
+    split_op_desc.SetAttr("axis", 1);
+    split_op_desc.SetAttr("num", slice_split_sort.size());
+
+    CHECK(graph->RetrieveArgument(slice_output_name) == nullptr);
+    auto* slice_output_node = graph->NewArgumentNode(slice_output_name);
+    slice_output_node->arg()->type = LiteType::GetTensorTy(
+        TARGET(kXPU));
+    auto split_new_op = LiteOpRegistry::Global().Create(split_op_desc.Type());
+    auto* split_node = graph->GraphCreateInstructNode(split_new_op, valid_places);
+
     DirectedLink(input_node, new_op_node);
+    DirectedLink(new_op_node, split_node);
     for (Node* node : output_node) {
-      DirectedLink(new_op_node, node);
+      DirectedLink(split_node, node);
     }
   }
 };
@@ -189,7 +262,9 @@ class XPUSliceSplitFuser : public FuseBase {
 class XPUSliceSplitFusePass : public ProgramPass {
  public:
   void Apply(const std::unique_ptr<SSAGraph>& graph) override {
-    fusion::XPUSliceSplitFuser slice_split_fuser;
+    // fusion::XPUSingleSliceSplitFuser single;
+    // single(graph.get());
+    fusion::XPUMultiSliceSplitFuser slice_split_fuser;
     slice_split_fuser(graph.get());
   }
 };
