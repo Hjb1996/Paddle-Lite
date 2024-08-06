@@ -239,8 +239,8 @@ class XPUMultiSliceSplitFuser {
       "__xpu__slice_output_" + in_name;
     split_op_desc.SetInput("X", {slice_output_name});
     split_op_desc.SetOutput("Out", {out_names});
-    split_op_desc.SetAttr("axis", 1);
-    split_op_desc.SetAttr("num", slice_split_sort.size());
+    split_op_desc.SetAttr<int>("axis", 1);
+    split_op_desc.SetAttr<int>("num", slice_split_sort.size());
 
     CHECK(graph->RetrieveArgument(slice_output_name) == nullptr);
     auto* slice_output_node = graph->NewArgumentNode(slice_output_name);
@@ -273,7 +273,7 @@ class XPUSliceSplitFusePass : public ProgramPass {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_MIR_PASS(__xpu__multi_softmax_fuse_pass,
+REGISTER_MIR_PASS(__xpu__slice_split_fuse_pass,
                   paddle::lite::mir::XPUSliceSplitFusePass)
     .BindTargets({TARGET(kXPU)})
     .BindKernel("__xpu__slice_split");
