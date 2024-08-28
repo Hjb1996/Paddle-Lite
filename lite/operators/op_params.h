@@ -1288,6 +1288,7 @@ struct CastParam : ParamBase {
   int in_dtype{2};
 };
 
+
 struct SliceParam : ParamBase {
   const lite::Tensor* X{nullptr};
   lite::Tensor* Out{nullptr};

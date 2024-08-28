@@ -157,6 +157,39 @@ struct PMNode {
     return this;
   }
 
+  // template <typename T>
+  // PMNode* assert_op_two_attr_satisfied(
+  //     const std::string& attr_name_1,
+  //     const std::string& attr_name_2,
+  //     const std::function<bool(const T&, const T&)>& condition) {
+  //   asserts_.push_back([=](const Node* x) {
+  //     if (x && x->IsStmt()) {
+  //       auto* op_info = x->stmt()->op_info();
+  //       return op_info->HasAttr(attr_name_1) &&
+  //              op_info->HasAttr(attr_name_2) &&
+  //              condition(op_info->GetAttr<T>(attr_name_1), op_info->GetAttr<T>(attr_name_2));
+  //     }
+  //     return false;
+  //   });
+  //   return this;
+  // }
+
+  template <typename T, typename VAL_T>
+  PMNode* assert_op_attr_satisfied_specified_value(
+      const std::string& attr_name,
+      const VAL_T& specified_val,
+      const std::function<bool(const T&, const VAL_T&)>& condition) {
+    asserts_.push_back([=](const Node* x) {
+      if (x && x->IsStmt()) {
+        auto* op_info = x->stmt()->op_info();
+        return op_info->HasAttr(attr_name_1) &&
+               condition(op_info->GetAttr<T>(attr_name), specified_val);
+      }
+      return false;
+    });
+    return this;
+  }
+
   template <typename T>
   PMNode* assert_op_attr(const std::string& attr_name, const T& attr) {
     return assert_op_attr_satisfied<T>(
