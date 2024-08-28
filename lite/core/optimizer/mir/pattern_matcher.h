@@ -182,7 +182,7 @@ struct PMNode {
     asserts_.push_back([=](const Node* x) {
       if (x && x->IsStmt()) {
         auto* op_info = x->stmt()->op_info();
-        return op_info->HasAttr(attr_name_1) &&
+        return op_info->HasAttr(attr_name) &&
                condition(op_info->GetAttr<T>(attr_name), specified_val);
       }
       return false;
