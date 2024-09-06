@@ -153,108 +153,46 @@ class XPUMultiSliceSplitFuser {
     split_op_desc.SetInput("Input", {concat_output_name});
     split_op_desc.SetAttr<int>("axis", 1);
     split_op_desc.SetAttr<int>("num", 6);
-    // std::string split_output_name = "__xpu__split_output";
     split_op_desc.SetOutput("Out", {split_out_node_names});
 
-    // 目前还是有些问题，需要修改 split的参数如下，不确定上面的参数是否正确
-// struct SplitParam : ParamBase {
-//   const lite::Tensor* x{nullptr};
-//   std::vector<lite::Tensor*> output{};
-//   const lite::Tensor* axis_tensor{nullptr};
-//   std::vector<lite::Tensor*> sections_tensor_list{};
-
-//   int axis{-1};
-//   int num{0};
-//   std::vector<int> sections;
-// };
-
-    auto split_new_op = LiteOpRegistry::Global().Create(split_op_desc.Type());
-    std::cout << "----172---This is a test for this pass" << std::endl;
-    split_new_op->Attach(split_op_desc, scope_split);
-    std::cout << "----174---This is a test for this pass" << std::endl;
-    auto* split_node = graph->GraphCreateInstructNode(split_new_op, valid_places);
-
     for (int i = 0; i < split_out_node_names.size(); i++) {
+      CHECK(graph->RetrieveArgument(split_out_node_names[i]) == nullptr);
       std::cout << "out_name:" << split_out_node_names[i] << std::endl;
       auto* out_name_node = graph->NewArgumentNode(split_out_node_names[i]);
-      out_name_node->arg()->type = LiteType::GetTensorTy(
-        TARGET(kXPU), PRECISION(kFloat));
-      // out_name_node->Attach(split_op_desc, scope_split);
-      
+      out_name_node->arg()->type = LiteType::GetTensorTy(TARGET(kXPU), PRECISION(kFloat));
       scope_split->NewTensor(split_out_node_names[i]);
+      // auto split_new_op = LiteOpRegistry::Global().Create(split_op_desc.Type());
+      // new_op->Attach(split_op_desc, scope_split);
+      // auto* out_name_node = graph->NewArgumentNode(split_out_node_names[i]);
       split_output_node.push_back(out_name_node);
-    }
+    }  
     std::cout << "----168---This is a test for this pass" << std::endl;
-
-
 
     DirectedLink(input_node, new_op_node);
     DirectedLink(new_op_node, concat_output_node);
-    DirectedLink(concat_output_node, split_node);
-
-    for (auto& node : new_op_node->outlinks) {
-      std::cout << "----167--------:" << std::endl;
-      std::cout << "new_op_node:" << *node << std::endl;
+    // DirectedLink(concat_output_node, split_node);
+    for (auto& node : split_output_node) {
+      DirectedLink(concat_output_node, node);
     }
 
-    for (auto& node : split_node->outlinks) {
-      std::cout << "----172--------:" << std::endl;
-      std::cout << "concat_output_node:" << *node << std::endl;
-    }
-
-    for (auto& node : concat_output_node->outlinks) {
-      std::cout << "----177--------:" << std::endl;
-      std::cout << "split_node:" << *node << std::endl;
-    }
-
-
+    
     std::cout << "----157---This is a test for this pass" << std::endl;
     // 链接
     int num = 0;
     for (Node* node : output_node) {
       std::cout << "num:" << num << std::endl;
-      DirectedLink(split_node, node);
+      DirectedLink(split_output_node[num], node);
+      if (num == 3) {
+        num++;
+      }
       num++;
     }
 
-    std::cout << "----166----:" << std::endl;
-    for (auto& node : input_node->outlinks) {
-      std::cout << "----168--------:" << std::endl;
-      std::cout << "node:" << node->stmt()->op_type() << std::endl;
-      // std::cout << "node input:" << node->stmt()->op_info()->Input("Input").front() << std::endl;
-      // std::cout << "node output:" << node->stmt()->op_info()->Output("Out").front() << std::endl;
-    }
-
-    for (auto& node : input_node->inlinks) {
-      std::cout << "----175--------:" << std::endl;
-      std::cout << "in node:" << node->stmt()->op_type() << std::endl;
-    }
-    Node* slice_node_tmp = input_node->outlinks.front();
-    std::cout << "slice_node_tmp:" << *slice_node_tmp << std::endl;
-    for (auto& node : slice_node_tmp->outlinks) {
-      std::cout << "----190--------:" << std::endl;
-      std::cout << "slice_node_tmp:" << *node << std::endl;
-    }
-
-    Node* concat_node_tmp = slice_node_tmp->outlinks.front();
-    std::cout << "concat node:" << *concat_node_tmp << std::endl;
-    for (auto& node : concat_node_tmp->outlinks) {
-      std::cout << "----196--------:" << std::endl;
-      std::cout << "concat_node_tmp:" << *node << std::endl;
-    }
-
-    Node* split_node_tmp = concat_node_tmp->outlinks.front();
-    std::cout << "split node:" << *split_node_tmp << std::endl;
-    for (auto& node : split_node_tmp->outlinks) {
-      std::cout << "----203--------:" << std::endl;
-      std::cout << "split_node_tmp node:" << *node << std::endl;
-    }
-    // Node* mul_enc_node = input_node->inlinks.front();
-    // // auto& mul_enc_node = input_node->inlinks;
-    // for (auto& node : mul_enc_node->outlinks) {
-    //   std::cout << "----193--------:" << std::endl;
-    //   std::cout << "mul enc outlink node:" << *node << std::endl;
+    // for (auto& node : new_op_node->outlinks) {
+    //   std::cout << "----167--------:" << std::endl;
+    //   std::cout << "new_op_node:" << *node << std::endl;
     // }
+
   }
 };
 
