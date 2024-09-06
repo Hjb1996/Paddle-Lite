@@ -138,14 +138,21 @@ class XPUMultiSliceSoftmaxFuser {
     auto& valid_places = first_softmax->valid_places();
 
     std::vector<bool> used(all_softmax.size(), false);
+    // 设置输出的名字
     std::vector<std::string> out_names;
+    // 拿到slice前的输入
     Node* input_node = all_softmax[0]->inlinks.front();
+    // 拿到node
     std::vector<Node*> output_node;
+    // 当前节点的输入名称
     std::string in_name =
         all_softmax[0]->stmt()->op_info()->Input("Input").front();
+    // 底层定义的[start, end]
     std::vector<int> lod{0};
+
     bool all_used = false;
     int last_remain = used.size();
+    // 节点个数
     int cur_remain = last_remain;
     while (all_used == false) {
       all_used = true;
